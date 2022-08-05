@@ -1,0 +1,288 @@
+---
+title: "STAT_2004_data_analysis"
+author: "Jake Kelberg"
+date: "29/09/2020"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+
+
+```{r}
+dataT = read.csv("mortality_data.csv")
+library(dplyr)
+```
+
+# I will use the average value of all 16 years combined for each variable within each country to create one dataset. This should give the maximum amount of data possible.
+ 
+```{r}
+library(dlookr)
+
+test <- dataT[,c(1,4:22)]
+
+DataAvg = test %>%
+  group_by(Country) %>%
+    summarise(Lifeexpectancy = mean(Lifeexpectancy, na.rm = T),
+              AdultMortality = mean(AdultMortality, na.rm = T), infantdeaths = mean(infantdeaths, na.rm = T),
+              Alcohol = mean(Alcohol, na.rm = T), percentageexpenditure = mean(percentageexpenditure, na.rm = T), HepatitisB = mean(HepatitisB, na.rm = T), Measles = mean(Measles, na.rm = T), BMI = mean(BMI, na.rm = T), under.fivedeaths = mean(under.fivedeaths, na.rm = T), Polio = mean(Polio, na.rm = T), Totalexpenditure = mean(Totalexpenditure, na.rm = T), Diphtheria = mean(Diphtheria, na.rm = T), HIV.AIDS = mean(HIV.AIDS, na.rm = T), GDP = mean(GDP, na.rm = T), Population = mean(Population, na.rm = T), thinness1.19years = mean(thinness1.19years, na.rm = T), thinness5.9years = mean(thinness5.9years, na.rm = T), Incomecompositionofresources = mean(Incomecompositionofresources, na.rm = T), Schooling = mean(Schooling, na.rm = T)) %>%
+      ungroup()
+
+DataAvg = left_join(DataAvg, dataT[,c(1,3)], by = "Country") %>% distinct()
+ 
+diagnose(DataAvg)
+
+
+```
+# Using the diagnose function i can establish which variables have a lot of missing values
+# remove population and GDP as there is a lot of missing values
+
+```{r}
+DataAvg = DataAvg[, c(1:14, 17:21)]
+diagnose(DataAvg)
+
+```
+# remove the rest of the row/observations with missing data
+# remove country variable
+```{r}
+DataAvg = na.omit(DataAvg) # Method 1 - Remove NA
+
+DataAvg$Country = NULL
+DataAvg$Status = NULL
+diagnose(DataAvg)
+```
+
+
+# plot for data visualization
+```{r}
+library("PerformanceAnalytics")
+chart.Correlation(DataAvg, histogram=TRUE, pch=19)
+
+```
+# Produce a correlation matrix to view if any variables have high levels of correlation with one another.
+```{r}
+library(ggcorrplot)
+CorrMat = cor(DataAvg)
+ggcorrplot(CorrMat)
+CorrMat
+```
+# check multivariate normality to establish viability of statistical techniques to be used.
+
+```{r fig.width=10}
+library(MVN)
+
+test.mvn = mvn(DataAvg, mvnTest =c("mardia"), univariateTest = "AD", univariatePlot = "histogram", multivariatePlot = "qq", multivariateOutlierMethod = "adj", showOutliers = TRUE, showNewData = TRUE)
+
+```
+
+
+```{r}
+summary(test.mvn)
+test.mvn$multivariateNormality
+test.mvn$univariateNormality
+
+```
+
+```{r}
+hist(DataAvg$Lifeexpectancy, breaks = 20)
+hist(DataAvg$infantdeaths, breaks = 20)
+hist(DataAvg$Totalexpenditure, breaks = 20)
+hist(DataAvg$Schooling, breaks = 20)
+hist(DataAvg$HepatitisB, breaks = 20)
+
+```
+# Tests for multivariate normality clearly show that the data is not Multivariate normal and all of the variables except Schooling and Total Expenditure are very skewed. This can be seen very clearly in the histograms above as well as the skewness values.
+
+
+# PCA can be used as the technique makes no assumptions of normality and is purely a representation of the data in terms of a different basis.
+
+```{r}
+PCA = princomp(DataAvg, cor = T)
+summary(PCA)
+PCA
+
+```
+# The general rule of thumb to use the componenents that have a variance greater than one yields 4 components.
+# This is visualised in the screeplot.
+```{r}
+plot(PCA)
+screeplot(PCA, type="lines")
+biplot(PCA, 1:2)
+biplot(PCA, 3:4)
+```
+
+```{r}
+PCA$loadings
+```
+
+# Creating the predictive model using Principal component regression (PCR)
+# Split the data into a train and test set
+```{r}
+Train = DataAvg[1:130,]
+XTrain = DataAvg[1:130, 2:17]
+YTrain = DataAvg[1:130,0:1]
+
+YTest = DataAvg[131:163,1]
+XTest = DataAvg[131:163,2:17]
+```
+
+#Life expectancy is the variable we wish to predict
+
+```{r}
+library(pls)
+
+PCR.model = pcr(Lifeexpectancy~. , data = Train, scale = T, validation ="CV")
+summary(PCR.model)
+plot(PCR.model, "loadings", comps = 1:2, legendpos = "topleft")
+PCR.model
+```
+
+
+```{r}
+validationplot(PCR.model, val.type = "MSEP")
+validationplot(PCR.model, val.type = "R2")
+plot(PCR.model, "validation", estimate = "all", legendpos= "topleft")
+
+```
+
+
+```{r}
+PCR.pred = predict(PCR.model, XTest, ncomp = 4)
+
+PCR.compare = cbind(PCR.pred,YTest)
+
+PCR.compare$error = (PCR.compare$`Lifeexpectancy.4 comps`-PCR.compare$Lifeexpectancy)
+hist(PCR.compare$error, breaks = 20)
+
+sqrt(mean(PCR.compare$error)^2)
+sqrt(sd(PCR.compare$error)^2)
+
+```
+
+```{r}
+PLSR.model = plsr(Lifeexpectancy~. , data = Train, scale = T, validation ="CV")
+plot(PLSR.model, "loadings", comps = 1:2, legendpos = "topleft")
+PLSR.model
+```
+
+```{r}
+validationplot(PLSR.model, val.type = "MSEP")
+validationplot(PLSR.model, val.type = "R2")
+plot(PLSR.model, "validation", estimate = "all", legendpos= "topleft")
+summary(PLSR.model)
+
+```
+
+
+```{r}
+PLSR.pred = predict(PLSR.model, XTest, ncomp = 4)
+
+PLSR.compare = cbind(PLSR.pred,YTest)
+PLSR.compare$error = (PLSR.compare$`Lifeexpectancy.4 comps`-PLSR.compare$Lifeexpectancy)
+sqrt(mean(PLSR.compare$error)^2)
+sqrt(sd(PLSR.compare$error)^2)
+hist(PLSR.compare$error, breaks = 20)
+```
+
+```{r}
+library(randomForest)
+mod.rf = randomForest(Lifeexpectancy~., Train, n_tree= 100)
+```
+
+```{r}
+importance(mod.rf)
+varImpPlot(mod.rf)
+plot(mod.rf)
+```
+
+```{r}
+rf.predict = predict(mod.rf, XTest)
+
+```
+
+```{r}
+set.seed(1234)
+compare.rf = cbind(rf.predict,YTest)
+compare.rf$error = rf.predict - YTest
+
+compare.rf <- as.data.frame(as.matrix(compare.rf))
+
+sqrt(mean(compare.rf$error)^2)
+sqrt(sd(compare.rf$error)^2)
+hist(compare.rf$error, breaks = 20)
+
+```
+
+```{r}
+mod.rf.2 = randomForest(Lifeexpectancy~., Train, n_tree= 500)
+```
+
+```{r}
+importance(mod.rf.2)
+varImpPlot(mod.rf.2)
+plot(mod.rf.2)
+```
+
+```{r}
+set.seed(2)
+rf.predict.2 = predict(mod.rf.2, XTest)
+
+```
+
+```{r}
+set.seed(123)
+compare.rf.2 = cbind(rf.predict.2,YTest)
+compare.rf.2$error = rf.predict.2 - YTest
+
+compare.rf.2 <- as.data.frame(as.matrix(compare.rf.2))
+
+sqrt(mean(compare.rf.2$error)^2)
+sqrt(sd(compare.rf.2$error)^2)
+hist(compare.rf.2$error, breaks = 20)
+
+```
+
+```{r}
+All.compare = cbind(YTest, PCR.pred, PLSR.pred, rf.predict, rf.predict.2)
+
+colnames(All.compare)[2] = "PCR.predict"
+colnames(All.compare)[3] = "PLSR.predict"
+colnames(All.compare)[4] = "RF.predict.100"
+colnames(All.compare)[5] = "RF.predict.500"
+```
+
+```{r}
+boxplot(PCR.compare$error, PLSR.compare$error, compare.rf$error, compare.rf.2$error, main = "Prediction error",
+        names = c("PCR", "PLSR", "RandomForest100", "RandomForest500"))
+
+par(mfrow=c(2,4))
+plot(All.compare$PCR.predict, All.compare$Lifeexpectancy)
+plot(All.compare$PLSR.predict, All.compare$Lifeexpectancy)
+plot(All.compare$RF.predict.100, All.compare$Lifeexpectancy)
+plot(All.compare$RF.predict.500, All.compare$Lifeexpectancy)
+hist(PCR.compare$error, main = "PCR error")
+hist(PLSR.compare$error, main = "PLSR error")
+hist(compare.rf$error, main = "RandomForest100 error")
+hist(compare.rf.2$error, main = "RandomForest500 error")
+
+```
+
+
+
+
+
+
+
