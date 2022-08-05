@@ -10,3 +10,6 @@ Asian Option Monte Carlo simulated stock price paths and prices for arithmetic a
 
 BS_PDE_Solver_Crank_Nicolson.ipynb:
 First attempt at a semi-implicit PDE solver. This is using the Crank-Nicolson method. At this stage the error is staying relatively constant. Derivative approximations are a forward time and the spatial derivatives are an average across the time domain.
+
+STAT_2004 Project.Rmd: R code for a project completed for STAT2004 - Analytics for observational data. Looking at various statistical methods to 
+predict average life expectancy of a country.
